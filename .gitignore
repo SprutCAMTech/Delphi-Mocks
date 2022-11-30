@@ -21,6 +21,7 @@
 
 # Output Folders  #
 ###################
+/bin
 /Win32
 /Win64
 /Tests/Win32
