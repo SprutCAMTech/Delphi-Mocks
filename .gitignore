@@ -29,6 +29,14 @@
 /Examples/Win32
 /Examples/Win64
 
+# Build system files
+/.stbuild/.nuke/temp
+/.stbuild/temp
+/.stbuild/hash
+/.stbuild/build/bin
+/.stbuild/build/obj
+/.stbuild/buildspace.local.json
+
 Build/TestAndBuild.fb7lck
 *.fbl7
 *.fbpInf
