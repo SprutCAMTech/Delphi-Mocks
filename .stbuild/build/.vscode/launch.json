@@ -9,7 +9,7 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/bin/dmocks_build.exe",
+            "program": "${workspaceFolder}/bin/stbuild.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
