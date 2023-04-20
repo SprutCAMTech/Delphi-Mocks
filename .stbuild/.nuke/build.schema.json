@@ -35,18 +35,6 @@
             "VSCode"
           ]
         },
-        "Local": {
-          "type": "string",
-          "description": "Defines a file name suffix with local settings"
-        },
-        "no-check-restored-files": {
-          "type": "string",
-          "description": "Don't restore any dependencies"
-        },
-        "no-restore": {
-          "type": "string",
-          "description": "Don't restore any dependencies"
-        },
         "NoLogo": {
           "type": "boolean",
           "description": "Disables displaying the NUKE logo"
@@ -78,10 +66,7 @@
             "enum": [
               "Clean",
               "Compile",
-              "CompileAllReleasePlatf",
               "Deploy",
-              "DownloadRepos",
-              "Reclaim",
               "Restore",
               "SetBuildInfo"
             ]
@@ -95,10 +80,7 @@
             "enum": [
               "Clean",
               "Compile",
-              "CompileAllReleasePlatf",
               "Deploy",
-              "DownloadRepos",
-              "Reclaim",
               "Restore",
               "SetBuildInfo"
             ]
