@@ -1,30 +1,31 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
-using SprutCAMTech.Builder.MsDelphi;
-using SprutCAMTech.BuildSystem.ManagerObject;
 using SprutCAMTech.BuildSystem.SettingsReader;
 using SprutCAMTech.BuildSystem.SettingsReader.Object;
-using SprutCAMTech.Cleaner.Common;
-using SprutCAMTech.HashGenerator;
-using SprutCAMTech.HashGenerator.Common;
-using SprutCAMTech.PackageManager.Nuget;
-using SprutCAMTech.ProjectCache.Common;
-using SprutCAMTech.Restorer.Nuget;
-using SprutCAMTech.VersionManager.Common;
-using SprutCAMTech.Package;
-using SprutCAMTech.BuildSystem.Info;
 using SprutCAMTech.BuildSystem.Variants;
-using Newtonsoft.Json.Linq;
+using SprutCAMTech.BuildSystem.ProjectList.Common;
+using SprutCAMTech.BuildSystem.Package;
+using SprutCAMTech.BuildSystem.Builder.MsDelphi;
+using SprutCAMTech.BuildSystem.VersionManager.Common;
+using SprutCAMTech.BuildSystem.ProjectCache.NuGet;
+using SprutCAMTech.BuildSystem.HashGenerator.Common;
+using SprutCAMTech.BuildSystem.HashGenerator;
+using SprutCAMTech.BuildSystem.Restorer.Nuget;
+using SprutCAMTech.BuildSystem.Cleaner.Common;
+using SprutCAMTech.BuildSystem.PackageManager.Nuget;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.BuildInfoSaver.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.Analyzer.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.SourceHashCalculator.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.Compiler.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.ProjectRestorer.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.CopierBuildResults.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers.Deployer.Common;
 
 /// <inheritdoc />
 class BuildSpaceSettings : SettingsObject
 {
     const StringComparison IGNCASE = StringComparison.CurrentCultureIgnoreCase;
-
-    const string DEVFEED = "https://nexus.office.sprut.ru/repository/dev-feed/index.json";
-    const string MSTFEED = "https://nexus.office.sprut.ru/repository/master-feed/index.json";
-
     ReaderJson readerJson;
 
     /// <inheritdoc />
@@ -32,35 +33,28 @@ class BuildSpaceSettings : SettingsObject
     public BuildSpaceSettings(string[] configFiles) : base() {
         readerJson = new ReaderJson(Build.Logger);
         readerJson.ReadRules(configFiles);
-
         ReaderLocalVars = readerJson.LocalVars;
         ReaderDefines = readerJson.Defines;
-        Projects = GetProjectList(configFiles);
+
+        Projects = new HashSet<string>() {
+            Path.Combine(Build.RootDirectory, "../DelphiMocksPackage/main/.stbuild/DelphiMocksProject.json"),
+        };
+
+        ProjectListProps = new ProjectListCommonProps(Build.Logger) {
+            BuildInfoSaverProps = new BuildInfoSaverCommonProps(),
+            AnalyzerProps = new AnalyzerCommonProps(),
+            SourceHashCalculatorProps = new SourceHashCalculatorCommonProps(),
+            CompilerProps = new CompilerCommonProps(),
+            CopierBuildResultsProps = new CopierBuildResultsCommonProps(),
+            DeployerProps = new DeployerCommonProps(),
+            ProjectRestorerProps = new ProjectRestorerCommonProps
+            {
+                RestoreInsteadOfBuild = (info) => false
+            },
+            GetNextVersion = GetNextVersion.FromRemotePackages
+        };
 
         RegisterBSObjects();
-    }
-
-    /// <summary>
-    /// Reads a list of projects from configFiles
-    /// </summary>
-    /// <param name="configFiles"> Json configuration file paths </param>
-    private HashSet<string> GetProjectList(string[] configFiles) {
-        var resultList = new HashSet<string>();
-        foreach (var config in configFiles) {
-            if (!File.Exists(config)) 
-                continue;
-
-            var jsonObj = JObject.Parse(File.ReadAllText(config));
-            if (jsonObj.TryGetValue("projects", IGNCASE, out var jprojs)) {
-                var configDir = Path.GetDirectoryName(config) + "";
-                foreach (var jproj in jprojs) {
-                    var projPath = Path.GetFullPath(Path.Combine(configDir, jproj.ToString()));
-                    if (File.Exists(projPath) && !resultList.Contains(projPath))
-                        resultList.Add(projPath);
-                }
-            }
-        }
-        return resultList;
     }
 
     /// <summary>
@@ -90,35 +84,18 @@ class BuildSpaceSettings : SettingsObject
             }
         };
 
-        ManagerProps = new List<IManagerProp> {
-            builderDelphiRelease,
-            builderDelphiDebug,
-            packageManagerNuget,
-            versionManagerCommon,
-            projectCacheCommon,
-            hashGeneratorCommon,
-            restorerNuget,
-            cleanerCommon,
-            cleanerCommonDelphi
-        };
-
-        foreach (var variant in Variants) {
-            if (variant.Name.StartsWith("Release")) {
-                ManagerNames.Add("builder_delphi", variant.Name, "builder_delphi_release");
-            } else {
-                ManagerNames.Add("builder_delphi", variant.Name, "builder_delphi_debug");
-            }
-            ManagerNames.Add("package_manager", variant.Name, "package_manager_nuget_rc");
-            ManagerNames.Add("version_manager", variant.Name, "version_manager_common");
-            ManagerNames.Add("project_cache", variant.Name, "project_cache_common");
-            ManagerNames.Add("hash_generator", variant.Name, "hash_generator_main");
-            ManagerNames.Add("restorer", variant.Name, "restorer_main");
-            ManagerNames.Add("cleaner", variant.Name, "cleaner_default_main");
-            ManagerNames.Add("cleaner_delphi", variant.Name, "cleaner_delphi_main");
-        }
+        AddManagerProp("builder_delphi", new() {"Release_x64", "Release_x32"}, builderDelphiRelease);
+        AddManagerProp("builder_delphi",  new() {"Debug_x64", "Debug_x32"}, builderDelphiDebug);
+        AddManagerProp("package_manager", null, packageManagerNuget);
+        AddManagerProp("version_manager", null, versionManagerCommon);
+        AddManagerProp("hash_generator", null, hashGeneratorCommon);
+        AddManagerProp("restorer", null, restorerNuget);
+        AddManagerProp("cleaner", null, cleanerCommon);
+        AddManagerProp("cleaner_delphi", null, cleanerCommonDelphi);
+        AddManagerProp("project_cache", null, projectCacheNuGet);
     }
 
-        BuilderMsDelphiProps builderDelphiRelease => new() {
+    BuilderMsDelphiProps builderDelphiRelease => new() {
         Name = "builder_delphi_release",
         MsBuilderPath = readerJson.LocalVars["msbuilder_path"],
         EnvBdsPath = readerJson.LocalVars["env_bds"],
@@ -162,11 +139,13 @@ class BuildSpaceSettings : SettingsObject
 
     VersionManagerCommonProps versionManagerCommon {
         get {
-            var branch = BuildInfo.JenkinsParam(JenkinsInfo.BranchName) + "";
+            var branch = Build.GitBranch;
             var vmcp = new VersionManagerCommonProps();
             vmcp.Name = "version_manager_common";
             vmcp.DepthSearch = 2;
             vmcp.StartValue = 1;
+            vmcp.UnstableVersionGap = 100;
+            vmcp.PullRequestBranchPrefix = "c-";
             vmcp.DevelopBranchName = branch.EndsWith("develop", IGNCASE) ? branch : "develop";
             vmcp.MasterBranchName =  branch.EndsWith("master", IGNCASE) ? branch : "master";
             vmcp.ReleaseBranchName = branch.EndsWith("release", IGNCASE) ? branch : "release";
@@ -174,9 +153,10 @@ class BuildSpaceSettings : SettingsObject
         }
     }
 
-    ProjectCacheCommonProps projectCacheCommon => new() {
-        Name = "project_cache_common",
-        IgnorePackageCache = false,
+    ProjectCacheNuGetProps projectCacheNuGet => new() {
+        Name = "project_cache_nuget",
+        VersionManagerProps = versionManagerCommon,
+        PackageManagerProps = packageManagerNuget,
         TempDir = "./hash"
     };
 
@@ -208,22 +188,15 @@ class BuildSpaceSettings : SettingsObject
         SetStorageInfo = SetStorageInfoFunc
     };
 
-    private StorageInfo SetStorageInfoFunc(PackageAction action, IPackageProps? packageProps) {
-        // APIKEY
-        var si = new StorageInfo();
-        si.ApiKey = readerJson.LocalVars["nuget_api_key"];
+    private StorageInfo SetStorageInfoFunc(PackageAction packageAction, string packageId, VersionProp? packageVersion) {
+        var si = new StorageInfo() {
+            Url = readerJson.LocalVars.GetValueOrDefault("nuget_source"),
+            ApiKey = readerJson.LocalVars.GetValueOrDefault("nuget_api_key")
+        };
 
-        // NUGET SOURCE
-        var branch = BuildInfo.JenkinsParam(JenkinsInfo.BranchName) + "";
-        if (!string.IsNullOrEmpty(branch))
-            si.Url = branch.EndsWith("master", IGNCASE) ? MSTFEED : DEVFEED; // master/develop
-        else
-            si.Url = readerJson.LocalVars["nuget_source"]; //default
-
-        Build.Logger.debug("SetStorageInfoFunc: branch=" + BuildInfo.JenkinsParam(JenkinsInfo.BranchName));
-        Build.Logger.debug("SetStorageInfoFunc: url=" + si.Url);
-        Build.Logger.debug("SetStorageInfoFunc: apiKey=" + si.ApiKey);
+        Build.Logger.debug($"SetStorageInfoFunc: url={si.Url} - apiKey has " + !string.IsNullOrEmpty(si.ApiKey));
 
         return si;
     }
+
 }

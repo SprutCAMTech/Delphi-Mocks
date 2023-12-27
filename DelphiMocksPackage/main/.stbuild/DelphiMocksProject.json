@@ -6,19 +6,21 @@
 		"$native_project:sources$"
 	],
 
-	"title": "SprutTech $native_project:name$ package",
-	"authors": ["SprutTech"],
-	"owners":  ["SprutTech"],
+	"title": "SprutCAM Tech $native_project:name$ package",
+	"description": "SprutCAM Tech Delphi Mocks package",
+	"authors": ["SprutCAM Tech"],
+	"owners":  ["SprutCAM Tech"],
 	"language": "en-US",
-	"version": "1.0", 
+	"version": "1.0",
+	"copyright": "Copyright SprutCAM Tech 2021-2023",
 
 	"packages": [
 		{
 			"class": "Nuget",
 			"id": "SprutCAMTech.$native_project:name$.x64",
-			"group": "x64",
 			"variant_files": {
 				"Release_x64": [ {
+					"condition": "'$(Platform)' != 'x86'",
 					"files": {
 						"$project:output_bpl$/$native_project:name$.stbuildresult.json": "build",
 						"$project:output_bpl$/$native_project:name$.bpl": "build",
@@ -32,9 +34,9 @@
 		{
 			"class": "Nuget",
 			"id": "SprutCAMTech.$native_project:name$.x32",
-			"group": "x32",
 			"variant_files": {
 				"Release_x32": [ {
+					"condition": "'$(Platform)' == 'x86'",
 					"files": {
 						"$project:output_bpl$/$native_project:name$.stbuildresult.json": "build",
 						"$project:output_bpl$/$native_project:name$.bpl": "build",
