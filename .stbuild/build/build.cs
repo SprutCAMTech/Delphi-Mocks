@@ -1,10 +1,10 @@
 using System.IO;
 using Nuke.Common;
-using SprutCAMTech.BuildSystem.Info;
-using SprutCAMTech.BuildSystem.Logging;
-using SprutCAMTech.BuildSystem.Logging.Console;
 using SprutCAMTech.BuildSystem.BuildSpace;
 using SprutCAMTech.BuildSystem.BuildSpace.Common;
+using SprutCAMTech.BuildSystem.Info;
+using SprutCAMTech.BuildSystem.Logging;
+using SprutCAMTech.BuildSystem.Loggers;
 using SprutCAMTech.BuildSystem.SettingsReader;
 using SprutCAMTech.BuildSystem.SettingsReader.Object;
 
@@ -22,9 +22,6 @@ public class Build : NukeBuild
     [Parameter("Settings provided for running build space")]
     public readonly string Variant = "Release_x64";
 
-    /// <summary> Current git branch </summary>
-    public static string GitBranch => BuildInfo.JenkinsParam(JenkinsInfo.BranchName) + "";
-
     /// <inheritdoc/>
     public static ILogger Logger = new LoggerConsole();
 
@@ -33,8 +30,9 @@ public class Build : NukeBuild
     private IBuildSpace BSpace => _buildSpace ??= InitBuildSpace();
 
     private IBuildSpace InitBuildSpace() {
+        var localJsonFile = Path.Combine(RootDirectory, $"buildspace.{BuildInfo.RunParams[RunInfo.Local]}.json");
         var bsJsonFile = Path.Combine(RootDirectory, "buildspace.json");
-        SettingsObject config = new BuildSpaceSettings(new[] {bsJsonFile});
+        SettingsObject config = new BuildSpaceSettings(new[] {bsJsonFile, localJsonFile}, RootDirectory, Logger);
         return new BuildSpaceCommon(Logger, RootDirectory + "//temp", SettingsReaderType.Object, config);
     }
 
@@ -45,15 +43,17 @@ public class Build : NukeBuild
     .Executes(() => {
         Logger.setMinLevel(SprutCAMTech.BuildSystem.Logging.LogLevel.debug);
 
+        // params provided to command line
         BuildInfo.RunParams[RunInfo.Variant] = Variant;
         BuildInfo.RunParams[RunInfo.NoRestore] = "false";
         BuildInfo.RunParams[RunInfo.NoCheckRestoredFiles] = "false";
         BuildInfo.RunParams[RunInfo.Local] = "local";
         foreach (var runParam in BuildInfo.RunParams)
-            Logger.info($"{runParam.Key}: {runParam.Value}");
-
-        // publish as a master feed
-        BuildInfo.JenkinsParams[JenkinsInfo.BranchName] = "master";
+            Logger.debug($"{runParam.Key}: {runParam.Value}");
+        
+        // current branch
+        BuildInfo.JenkinsParams.Add(JenkinsInfo.BranchName, "develop");
+        Logger.debug("Current branch: " + BuildInfo.JenkinsParams[JenkinsInfo.BranchName]);
     });
 
     /// <summary> Restoring build space </summary>
@@ -70,7 +70,7 @@ public class Build : NukeBuild
             BSpace.Projects.Compile(Variant, true);
         });
 
-    /// <summary> Compile all release </summary>
+    /// <summary> Compiling projects for all release configurations </summary>
     private Target CompileAllRelease => _ => _
         .DependsOn(SetBuildInfo)
         .Executes(() => {

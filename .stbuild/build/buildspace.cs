@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using SprutCAMTech.BuildSystem.Info;
+using SprutCAMTech.BuildSystem.Logging;
 using SprutCAMTech.BuildSystem.SettingsReader;
 using SprutCAMTech.BuildSystem.SettingsReader.Object;
 using SprutCAMTech.BuildSystem.Variants;
@@ -8,39 +10,43 @@ using SprutCAMTech.BuildSystem.ProjectList.Common;
 using SprutCAMTech.BuildSystem.Package;
 using SprutCAMTech.BuildSystem.Builder.MsDelphi;
 using SprutCAMTech.BuildSystem.VersionManager.Common;
+using SprutCAMTech.BuildSystem.ProjectCache.Common;
 using SprutCAMTech.BuildSystem.ProjectCache.NuGet;
 using SprutCAMTech.BuildSystem.HashGenerator.Common;
-using SprutCAMTech.BuildSystem.HashGenerator;
 using SprutCAMTech.BuildSystem.Restorer.Nuget;
 using SprutCAMTech.BuildSystem.Cleaner.Common;
 using SprutCAMTech.BuildSystem.PackageManager.Nuget;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.BuildInfoSaver.Common;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.Analyzer.Common;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.SourceHashCalculator.Common;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.Compiler.Common;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.ProjectRestorer.Common;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.CopierBuildResults.Common;
-using SprutCAMTech.BuildSystem.ProjectList.Helpers.Deployer.Common;
+using SprutCAMTech.BuildSystem.ProjectList.Helpers;
+using SprutCAMTech.BuildSystem.ManagerObject.Interfaces;
 
 /// <inheritdoc />
 class BuildSpaceSettings : SettingsObject
 {
     const StringComparison IGNCASE = StringComparison.CurrentCultureIgnoreCase;
-    ReaderJson readerJson;
+
+    const string DEVFEED = "https://nexus.office.sprut.ru/repository/dev-feed/index.json";
+    const string MSTFEED = "https://nexus.office.sprut.ru/repository/master-feed/index.json";
+
+    ILogger _logger;
+    ReaderJson _readerJson;
+    private string GitBranch => BuildInfo.JenkinsParam(JenkinsInfo.BranchName) + "";
 
     /// <inheritdoc />
     /// <param name="configFiles"> Json configuration file paths </param>
-    public BuildSpaceSettings(string[] configFiles) : base() {
-        readerJson = new ReaderJson(Build.Logger);
-        readerJson.ReadRules(configFiles);
-        ReaderLocalVars = readerJson.LocalVars;
-        ReaderDefines = readerJson.Defines;
+    /// <param name="wdir"> Working directory </param>
+    /// <param name="logger"> Build space logger </param>
+    public BuildSpaceSettings(string[] configFiles, string wdir, ILogger logger) : base() {
+        _logger = logger;
+        _readerJson = new ReaderJson(_logger);
+        _readerJson.ReadRules(configFiles);
+        ReaderLocalVars = _readerJson.LocalVars;
+        ReaderDefines = _readerJson.Defines;
 
         Projects = new HashSet<string>() {
-            Path.Combine(Build.RootDirectory, "../DelphiMocksPackage/main/.stbuild/DelphiMocksProject.json"),
+            Path.Combine(wdir, "..\\DelphiMocksPackage\\main\\.stbuild\\DelphiMocksProject.json")
         };
 
-        ProjectListProps = new ProjectListCommonProps(Build.Logger) {
+        ProjectListProps = new ProjectListCommonProps(_logger) {
             BuildInfoSaverProps = new BuildInfoSaverCommonProps(),
             AnalyzerProps = new AnalyzerCommonProps(),
             SourceHashCalculatorProps = new SourceHashCalculatorCommonProps(),
@@ -85,21 +91,22 @@ class BuildSpaceSettings : SettingsObject
         };
 
         AddManagerProp("builder_delphi", new() {"Release_x64", "Release_x32"}, builderDelphiRelease);
-        AddManagerProp("builder_delphi",  new() {"Debug_x64", "Debug_x32"}, builderDelphiDebug);
+        AddManagerProp("builder_delphi", new() {"Debug_x64", "Debug_x32"}, builderDelphiDebug);
         AddManagerProp("package_manager", null, packageManagerNuget);
         AddManagerProp("version_manager", null, versionManagerCommon);
         AddManagerProp("hash_generator", null, hashGeneratorCommon);
         AddManagerProp("restorer", null, restorerNuget);
         AddManagerProp("cleaner", null, cleanerCommon);
         AddManagerProp("cleaner_delphi", null, cleanerCommonDelphi);
-        AddManagerProp("project_cache", null, projectCacheNuGet);
+        AddManagerProp("project_cache", null, projectCacheNuGet); // projectCacheCommon
     }
 
     BuilderMsDelphiProps builderDelphiRelease => new() {
         Name = "builder_delphi_release",
-        MsBuilderPath = readerJson.LocalVars["msbuilder_path"],
-        EnvBdsPath = readerJson.LocalVars["env_bds"],
-        RsVarsPath = readerJson.LocalVars["rsvars_path"],
+        BuilderVersion = "12.1-23.0",
+        MsBuilderPath = _readerJson.LocalVars["msbuilder_path"],
+        EnvBdsPath = _readerJson.LocalVars["env_bds"],
+        RsVarsPath = _readerJson.LocalVars["rsvars_path"],
         AutoClean = true,
         BuildParams = new Dictionary<string, string?>
         {
@@ -137,21 +144,18 @@ class BuildSpaceSettings : SettingsObject
         }
     }
 
-    VersionManagerCommonProps versionManagerCommon {
-        get {
-            var branch = Build.GitBranch;
-            var vmcp = new VersionManagerCommonProps();
-            vmcp.Name = "version_manager_common";
-            vmcp.DepthSearch = 2;
-            vmcp.StartValue = 1;
-            vmcp.UnstableVersionGap = 100;
-            vmcp.PullRequestBranchPrefix = "c-";
-            vmcp.DevelopBranchName = branch.EndsWith("develop", IGNCASE) ? branch : "develop";
-            vmcp.MasterBranchName =  branch.EndsWith("master", IGNCASE) ? branch : "master";
-            vmcp.ReleaseBranchName = branch.EndsWith("release", IGNCASE) ? branch : "release";
-            return vmcp;
-        }
-    }
+    VersionManagerCommonProps versionManagerCommon => new() {
+        Name = "version_manager_common",
+        DepthSearch = 2,
+        DevelopBranchName = GitBranch.EndsWith("develop", IGNCASE) ? GitBranch : "develop",
+        MasterBranchName =  GitBranch.EndsWith("master", IGNCASE)  ? GitBranch : "master",
+        ReleaseBranchName = GitBranch.EndsWith("release", IGNCASE) ? GitBranch : "release"
+    };
+
+    ProjectCacheCommonProps projectCacheCommon => new() {
+        Name = "project_cache_main",
+        TempDir = "./hash"
+    };
 
     ProjectCacheNuGetProps projectCacheNuGet => new() {
         Name = "project_cache_nuget",
@@ -185,18 +189,20 @@ class BuildSpaceSettings : SettingsObject
 
     PackageManagerNugetProps packageManagerNuget => new() {
         Name = "package_manager_nuget_rc",
-        SetStorageInfo = SetStorageInfoFunc
+        SetStorageInfo = SetStorageInfoFunc,
+        GitOptions = new()
     };
 
     private StorageInfo SetStorageInfoFunc(PackageAction packageAction, string packageId, VersionProp? packageVersion) {
+       var isMaster = GitBranch.EndsWith("master", IGNCASE) 
+            && packageAction != PackageAction.Reclaim && packageAction != PackageAction.Delete;
         var si = new StorageInfo() {
-            Url = readerJson.LocalVars.GetValueOrDefault("nuget_source"),
-            ApiKey = readerJson.LocalVars.GetValueOrDefault("nuget_api_key")
+            Url = isMaster ? MSTFEED : DEVFEED,
+            ApiKey = Environment.GetEnvironmentVariable("ST_NUGET_API_KEY")
         };
 
-        Build.Logger.debug($"SetStorageInfoFunc: url={si.Url} - apiKey has " + !string.IsNullOrEmpty(si.ApiKey));
+        _logger.debug($"SetStorageInfoFunc: url={si.Url} - apiKey has " + !string.IsNullOrEmpty(si.ApiKey));
 
         return si;
     }
-
 }
